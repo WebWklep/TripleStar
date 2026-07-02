@@ -240,7 +240,7 @@
         
         #sync-status {
             font-size: 11px;
-            margin-bottom: 10px;
+            margin-bottom: 15px;
             font-weight: bold;
         }
     </style>
@@ -334,32 +334,28 @@
             }
 
             try {
-                // Прямой публичный запрос к сырому файлу без авторизации для главной страницы
                 let rawUrl = `https://raw.githubusercontent.com/${OWNER}/${REPO}/main/${FILE_PATH}?t=${Date.now()}`;
                 let response = await fetch(rawUrl);
                 
                 if (response.ok) {
                     localPostsArray = await response.json();
-                } else {
-                    // Если файла нет или пустой, пробуем через API с токеном
-                    if (token) {
-                        let apiUrl = `https://api.github.com/repos/${OWNER}/${REPO}/contents/${FILE_PATH}?t=${Date.now()}`;
-                        let apiRes = await fetch(apiUrl, { headers: { 'Authorization': `Bearer ${token}` } });
-                        if (apiRes.ok) {
-                            let fileData = await apiRes.json();
-                            localPostsArray = JSON.parse(decodeBase64UTF8(fileData.content));
-                        }
+                } else if (token) {
+                    let apiUrl = `https://api.github.com/repos/${OWNER}/${REPO}/contents/${FILE_PATH}?t=${Date.now()}`;
+                    let apiRes = await fetch(apiUrl, { headers: { 'Authorization': `Bearer ${token}` } });
+                    if (apiRes.ok) {
+                        let fileData = await apiRes.json();
+                        localPostsArray = JSON.parse(decodeBase64UTF8(fileData.content));
                     }
                 }
 
-                statusBadge.innerText = token ? "✓ CONNECTED TO GITHUB REPOSITORY" : "Awaiting token credentials...";
-                statusBadge.style.color = "green";
+                statusBadge.innerText = token ? "✓ REGISTRY SYNC OPERATIONAL" : "Awaiting token credentials...";
+                statusBadge.style.color = token ? "green" : "#666";
                 renderUI();
 
             } catch (err) {
-                statusBadge.innerText = `✕ SYNC ERROR: ${err.message}`;
+                statusBadge.innerText = `✕ SYNC FAULT: ${err.message}`;
                 statusBadge.style.color = "red";
-                listContainer.innerHTML = `<p style="color:red; text-align:center;">Sync Loop Interrupted. Open Admin Panel.</p>`;
+                listContainer.innerHTML = `<p style="color:red; text-align:center;">Sync Loop Interrupted.</p>`;
             }
         }
 
@@ -415,6 +411,9 @@
         function toggleAdmin() {
             const panel = document.getElementById('admin-panel');
             panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
+            if (token) {
+                document.getElementById('gh-token').value = token;
+            }
         }
 
         function startEdit(index) {
@@ -445,10 +444,9 @@
 
         async function pushToGitHub(updatedArray, commitMessage) {
             const url = `https://api.github.com/repos/${OWNER}/${REPO}/contents/${FILE_PATH}`;
-            
             let sha = '';
-            let getRes = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
             
+            let getRes = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
             if (getRes.ok) {
                 const getData = await getRes.json();
                 sha = getData.sha;
@@ -471,25 +469,31 @@
 
             if (!putRes.ok) {
                 let errData = await putRes.json();
-                throw new Error(errData.message || 'GitHub Server Reject');
+                throw new Error(errData.message || 'Server Reject');
             }
 
             return true;
         }
 
         async function savePost() {
-            const title = document.getElementById('post-title').value;
-            const date = document.getElementById('post-date').value;
-            const img = document.getElementById('post-img').value;
-            const text = document.getElementById('post-text').value;
+            const currentToken = document.getElementById('gh-token').value.trim();
+            const title = document.getElementById('post-title').value.trim();
+            const date = document.getElementById('post-date').value.trim();
+            const img = document.getElementById('post-img').value.trim();
+            const text = document.getElementById('post-text').value.trim();
             const isDraft = document.getElementById('post-draft').checked;
             const btn = document.getElementById('save-btn');
 
-            if (!token) return alert('Token missing. Please insert GitHub Access Key.');
-            if (!title || !text) return alert('Title and Content body mandatory.');
+            if (currentToken) {
+                token = currentToken;
+                localStorage.setItem('gh_stored_token', token);
+            }
+
+            if (!token) return alert('Token required.');
+            if (!title) return alert('Title field is empty.');
 
             btn.disabled = true;
-            btn.innerText = 'Pushing payload to cloud...';
+            btn.innerText = 'Syncing...';
 
             try {
                 let nextPosts = [...localPostsArray];
@@ -497,18 +501,18 @@
 
                 if (editIndex !== null) {
                     nextPosts[editIndex] = { title, date, img, text, isDraft };
-                    commitMsg = `Modify node: ${title}`;
+                    commitMsg = `Update: ${title}`;
                 } else {
                     nextPosts.unshift({ title, date, img, text, isDraft });
-                    commitMsg = `Add node: ${title}`;
+                    commitMsg = `Add: ${title}`;
                 }
 
                 await pushToGitHub(nextPosts, commitMsg);
-                alert('Cloud sync complete! Refreshing archive state...');
+                alert('Success! Content pushed.');
                 resetForm();
                 await loadPosts();
             } catch (err) {
-                alert(`GitHub API Error: ${err.message}`);
+                alert(`API Error: ${err.message}`);
             } finally {
                 btn.disabled = false;
                 btn.innerText = editIndex !== null ? 'Push Modifications' : 'Publish to GitHub';
@@ -516,17 +520,17 @@
         }
 
         async function deletePost(index) {
-            if (!token) return alert('Token signature credential required.');
-            if (!confirm(`Purge entry permanently: "${localPostsArray[index].title}"?`)) return;
+            if (!token) return alert('Token missing.');
+            if (!confirm(`Delete entry: "${localPostsArray[index].title}"?`)) return;
 
             try {
                 const nextPosts = localPostsArray.filter((_, i) => i !== index);
-                await pushToGitHub(nextPosts, `Purge entry index ${index}`);
-                alert('Entry dropped.');
+                await pushToGitHub(nextPosts, `Delete index ${index}`);
+                alert('Deleted.');
                 if (editIndex === index) resetForm();
                 await loadPosts();
             } catch (err) {
-                alert(`Purge failed: ${err.message}`);
+                alert(`Error: ${err.message}`);
             }
         }
 
