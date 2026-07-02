@@ -242,7 +242,7 @@
 <body>
 
     <div class="content-container" id="articles-list">
-        <p id="loading-text">Synchronizing with GitHub archive...</p>
+        <p id="loading-text">Connecting to sync nodes...</p>
     </div>
 
     <footer>
@@ -297,6 +297,7 @@
         
         let localPostsArray = [];
         let editIndex = null;
+        let globalToken = '';
 
         function decodeBase64UTF8(str) {
             return decodeURIComponent(atob(str).split('').map(function(c) {
@@ -313,24 +314,40 @@
         async function loadPosts() {
             const listContainer = document.getElementById('articles-list');
             const manageContainer = document.getElementById('manage-list');
+            
             try {
-                const response = await fetch(`https://raw.githubusercontent.com/${OWNER}/${REPO}/main/${FILE_PATH}?t=${Date.now()}`);
+                // Принудительно гасим кэш гитхаба с помощью уникального таймштампа
+                let url = `https://api.github.com/repos/${OWNER}/${REPO}/contents/${FILE_PATH}?t=${Date.now()}`;
+                let headers = { 'Cache-Control': 'no-cache' };
                 
-                // Защита от битого JSON контента
-                const textData = await response.text();
-                try {
-                    localPostsArray = JSON.parse(textData);
-                } catch(jsonErr) {
-                    console.error("Invalid JSON format in data.json. Falling back to empty array.", jsonErr);
-                    localPostsArray = [];
+                if (globalToken) {
+                    headers['Authorization'] = `token ${globalToken}`;
                 }
+
+                let response = await fetch(url, { headers });
                 
-                if (!Array.isArray(localPostsArray)) {
+                if (response.status === 404 && !globalToken) {
+                    listContainer.innerHTML = '<p style="font-size:12px; color:#999; text-align:center; margin-top:40px;">Repository endpoint pending validation. Click "admin login" below to initiate context mapping.</p>';
+                    manageContainer.innerHTML = '<p style="font-size:11px; color:#999;">Awaiting credentials.</p>';
+                    return;
+                }
+
+                if (!response.ok) {
+                    throw new Error(`HTTP Error Status: ${response.status}`);
+                }
+
+                const fileData = await response.json();
+                const decodedText = decodeBase64UTF8(fileData.content);
+                
+                try {
+                    localPostsArray = JSON.parse(decodedText);
+                } catch(e) {
                     localPostsArray = [];
                 }
 
+                if (!Array.isArray(localPostsArray)) localPostsArray = [];
+
                 const visiblePosts = localPostsArray.filter(post => !post.isDraft);
-                
                 if (visiblePosts.length === 0) {
                     listContainer.innerHTML = '<p style="font-size:12px; color:#999; text-align:center; margin-top:40px;">Archive index is empty or entries are currently set to draft.</p>';
                 } else {
@@ -354,7 +371,7 @@
                 }
 
                 if (localPostsArray.length === 0) {
-                    manageContainer.innerHTML = '<p style="font-size:11px; color:#999;">No entries found in dataset.</p>';
+                    manageContainer.innerHTML = '<p style="font-size:11px; color:#999;">No entries found.</p>';
                     return;
                 }
 
@@ -378,15 +395,21 @@
                 });
 
             } catch (err) {
-                listContainer.innerHTML = '<p style="font-size:12px; color:red;">System sync error occurred.</p>';
-                manageContainer.innerHTML = '<p style="font-size:11px; color:red;">Registry failed.</p>';
-                console.error(err);
+                listContainer.innerHTML = `<p style="font-size:12px; color:red; text-align:center; margin-top:40px;">
+                    [SYSTEM SYNC FAILURE]<br><br>
+                    Trace: ${err.message}<br><br>
+                    Open "admin login" to refresh state.
+                </p>`;
+                manageContainer.innerHTML = '<p style="font-size:11px; color:red;">Sync failed.</p>';
             }
         }
 
         function toggleAdmin() {
             const panel = document.getElementById('admin-panel');
             panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
+            if (globalToken && !document.getElementById('gh-token').value) {
+                document.getElementById('gh-token').value = globalToken;
+            }
         }
 
         function startEdit(index) {
@@ -431,7 +454,7 @@
                 const getData = await getRes.json();
                 sha = getData.sha;
             } else {
-                throw new Error('Authentication failure or missing token signature mapping.');
+                throw new Error('Registry query failed. Invalid token scope map.');
             }
 
             const updatedContent = encodeBase64UTF8(JSON.stringify(updatedArray, null, 2));
@@ -465,6 +488,7 @@
                 return alert('Required keys missing: Token, Title, and Editorial Content text.');
             }
 
+            globalToken = token;
             btn.disabled = true;
             btn.innerText = 'Processing sync operational loop...';
 
@@ -474,4 +498,56 @@
 
                 if (editIndex !== null) {
                     nextPosts = [...localPostsArray];
-                    nextPosts
+                    nextPosts[editIndex] = { title, date, img, text, isDraft };
+                    commitMsg = `Archive Node Modification: ${title}`;
+                } else {
+                    const newPost = { title, date, img, text, isDraft };
+                    nextPosts = [newPost, ...localPostsArray];
+                    commitMsg = `Archive New Payload Entry: ${title}`;
+                }
+
+                const success = await pushToGitHub(token, nextPosts, commitMsg);
+
+                if (success) {
+                    alert('Data sync approved. Cloud server page content should refresh within 60 seconds.');
+                    resetForm();
+                    loadPosts();
+                } else {
+                    alert('Access denied. Verify security configurations.');
+                }
+            } catch (err) {
+                alert(err.message || 'Fatal endpoint response breakdown.');
+                console.error(err);
+            } finally {
+                btn.disabled = false;
+                btn.innerText = editIndex !== null ? 'Save Modifications' : 'Publish';
+            }
+        }
+
+        async function deletePost(index) {
+            const token = prompt('Security authorization mandatory. Input Token footprint credentials:');
+            if (!token) return;
+
+            if (!confirm(`Purge selected asset file registry target permanently: "${localPostsArray[index].title}"?`)) return;
+
+            try {
+                const nextPosts = localPostsArray.filter((_, i) => i !== index);
+                const success = await pushToGitHub(token, nextPosts, `Archive Node Purge: index ${index}`);
+
+                if (success) {
+                    alert('Target purged successfully.');
+                    if (editIndex === index) resetForm();
+                    loadPosts();
+                } else {
+                    alert('Purge deployment unauthorized.');
+                }
+            } catch (err) {
+                alert(err.message || 'System network error.');
+                console.error(err);
+            }
+        }
+
+        loadPosts();
+    </script>
+</body>
+</html>
