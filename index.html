@@ -5,15 +5,77 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Arts — Archive</title>
     <style>
+        /* Стартовый экран (Landing) */
+        #splash-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #000000;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            transition: opacity 0.5s ease, visibility 0.5s;
+            cursor: pointer;
+        }
+
+        #splash-screen img {
+            width: 80%;
+            max-width: 450px;
+            height: auto;
+            display: block;
+            margin-bottom: 30px;
+        }
+
+        .enter-btn {
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 11px;
+            color: #ffffff;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            border: 1px solid #ffffff;
+            padding: 10px 20px;
+            background: transparent;
+            cursor: pointer;
+            transition: background 0.2s, color 0.2s;
+        }
+        
+        #splash-screen:hover .enter-btn {
+            background: #ffffff;
+            color: #000000;
+        }
+
+        /* Основной сайт */
         body {
             font-family: 'Courier New', Courier, monospace;
             background-color: #ffffff;
             color: #000000;
             margin: 0;
-            padding: 40px 20px;
+            padding: 120px 20px 40px 20px; /* Отступ сверху под логотип */
             display: flex;
             flex-direction: column;
             align-items: center;
+        }
+
+        /* Маленькое лого в левом верхнем углу */
+        .site-logo-container {
+            position: absolute;
+            top: 30px;
+            left: 40px;
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+        }
+
+        .site-logo-container img {
+            width: 50px; /* Мелкий размер сбоку */
+            height: auto;
+            display: block;
+            /* Магия фильтров: инвертируем черный фон в белый, а синий спрей — в монохром */
+            filter: invert(1) grayscale(1) contrast(1.2); 
         }
 
         header, footer, .content-container {
@@ -113,6 +175,13 @@
         }
 
         @media (max-width: 768px) {
+            body {
+                padding-top: 100px;
+            }
+            .site-logo-container {
+                left: 20px;
+                top: 20px;
+            }
             .admin-layout {
                 grid-template-columns: 1fr;
             }
@@ -247,6 +316,15 @@
 </head>
 <body>
 
+    <div id="splash-screen" onclick="exitSplash()">
+        <img src="3star_big_spray.png" alt="TripleStar Core">
+        <button class="enter-btn">Enter Archive</button>
+    </div>
+
+    <div class="site-logo-container" onclick="showSplash()">
+        <img src="3star_big_spray.png" alt="Logo">
+    </div>
+
     <div class="content-container" id="articles-list">
         <p>Connecting to archive nodes...</p>
     </div>
@@ -304,6 +382,21 @@
         let editIndex = null;
         let token = localStorage.getItem('gh_stored_token') || '';
 
+        // Логика переключения экранов заставки
+        function exitSplash() {
+            const splash = document.getElementById('splash-screen');
+            splash.style.opacity = '0';
+            setTimeout(() => {
+                splash.style.visibility = 'hidden';
+            }, 500);
+        }
+
+        function showSplash() {
+            const splash = document.getElementById('splash-screen');
+            splash.style.visibility = 'visible';
+            splash.style.opacity = '1';
+        }
+
         function decodeBase64UTF8(str) {
             return decodeURIComponent(atob(str).split('').map(function(c) {
                 return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
@@ -333,7 +426,6 @@
             }
 
             try {
-                // Всегда делаем запрос через API с авторизацией и timestamp, чтобы обойти кэширование GitHub CDN
                 let apiUrl = `https://api.github.com/repos/${OWNER}/${REPO}/contents/${FILE_PATH}?t=${Date.now()}`;
                 let headers = {};
                 if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -343,7 +435,6 @@
                     let fileData = await apiRes.json();
                     localPostsArray = JSON.parse(decodeBase64UTF8(fileData.content));
                 } else {
-                    // Если файла ещё нет на сервере
                     localPostsArray = [];
                 }
 
@@ -509,7 +600,6 @@
                 alert('Success! Content pushed.');
                 resetForm();
                 
-                // Делаем небольшую паузу, чтобы GitHub успел обновить SHA у себя в базе перед перечиткой
                 setTimeout(async () => {
                     await loadPosts();
                 }, 1000);
