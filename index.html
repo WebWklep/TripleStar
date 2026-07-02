@@ -274,9 +274,9 @@
             <div class="admin-form">
                 <h3 id="form-mode-title">[ Append to Archive ]</h3>
                 <input type="password" id="gh-token" placeholder="GitHub Personal Access Token" oninput="saveTokenLocally(this.value)">
-                <input type="text" id="post-title" placeholder="TITLE (e.g. SERIES 01: BIO POP)">
-                <input type="text" id="post-date" placeholder="DATE & STATUS (e.g. THE ORIGIN, 2025)">
-                <input type="text" id="post-img" placeholder="Image asset filename (e.g. asset.png)">
+                <input type="text" id="post-title" placeholder="TITLE (e.g. TEST POST)">
+                <input type="text" id="post-date" placeholder="DATE & STATUS (e.g. 2026)">
+                <input type="text" id="post-img" placeholder="Image asset filename (optional)">
                 <textarea id="post-text" rows="8" placeholder="Editorial text body content..."></textarea>
                 
                 <label class="checkbox-container">
@@ -326,7 +326,6 @@
 
         async function loadPosts() {
             const listContainer = document.getElementById('articles-list');
-            const manageContainer = document.getElementById('manage-list');
             const statusBadge = document.getElementById('sync-status');
             
             if (token) {
@@ -490,7 +489,6 @@
             }
 
             if (!token) return alert('Token required.');
-            if (!title) return alert('Title field is empty.');
 
             btn.disabled = true;
             btn.innerText = 'Syncing...';
@@ -501,10 +499,10 @@
 
                 if (editIndex !== null) {
                     nextPosts[editIndex] = { title, date, img, text, isDraft };
-                    commitMsg = `Update: ${title}`;
+                    commitMsg = `Update: ${title || 'Entry'}`;
                 } else {
                     nextPosts.unshift({ title, date, img, text, isDraft });
-                    commitMsg = `Add: ${title}`;
+                    commitMsg = `Add: ${title || 'Entry'}`;
                 }
 
                 await pushToGitHub(nextPosts, commitMsg);
@@ -521,7 +519,7 @@
 
         async function deletePost(index) {
             if (!token) return alert('Token missing.');
-            if (!confirm(`Delete entry: "${localPostsArray[index].title}"?`)) return;
+            if (!confirm(`Delete entry?`)) return;
 
             try {
                 const nextPosts = localPostsArray.filter((_, i) => i !== index);
